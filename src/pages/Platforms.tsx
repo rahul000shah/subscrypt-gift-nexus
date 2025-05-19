@@ -34,7 +34,6 @@ import {
   SelectContent,
   SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -48,13 +47,15 @@ import {
   CreditCard, 
   Image,
   Loader2,
-  Layers
+  Layers,
+  RefreshCw
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
-import { toast } from "sonner";
+import { useNavigate } from "react-router-dom";
 
 const Platforms = () => {
-  const { platforms, subscriptions, addPlatform, updatePlatform, deletePlatform } = useData();
+  const { platforms, subscriptions, addPlatform, updatePlatform, deletePlatform, loading, refreshData } = useData();
+  const navigate = useNavigate();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
@@ -62,6 +63,7 @@ const Platforms = () => {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   
   const [currentPlatform, setCurrentPlatform] = useState<Platform | null>(null);
   const [formData, setFormData] = useState({
@@ -74,7 +76,7 @@ const Platforms = () => {
   const filteredPlatforms = platforms.filter(platform => {
     const query = searchQuery.toLowerCase();
     const matchesSearch = platform.name.toLowerCase().includes(query) || 
-                         platform.description.toLowerCase().includes(query);
+                         (platform.description && platform.description.toLowerCase().includes(query));
     
     if (typeFilter) {
       return matchesSearch && platform.type === typeFilter;
@@ -88,8 +90,8 @@ const Platforms = () => {
     setFormData({
       name: platform.name,
       type: platform.type,
-      description: platform.description,
-      logo_url: platform.logo_url
+      description: platform.description || "",
+      logo_url: platform.logo_url || ""
     });
     setIsEditDialogOpen(true);
   };
@@ -101,7 +103,6 @@ const Platforms = () => {
 
   const handleAddPlatform = async () => {
     if (!formData.name) {
-      toast.error("Platform name is required");
       return;
     }
     
@@ -119,7 +120,6 @@ const Platforms = () => {
     if (!currentPlatform) return;
     
     if (!formData.name) {
-      toast.error("Platform name is required");
       return;
     }
     
@@ -135,23 +135,19 @@ const Platforms = () => {
   const handleDeletePlatform = async () => {
     if (!currentPlatform) return;
     
-    // Check if platform has subscriptions
-    const platformSubs = subscriptions.filter(sub => sub.platform_id === currentPlatform.id);
-    if (platformSubs.length > 0) {
-      toast.error("Cannot delete platform with active subscriptions");
-      setIsDeleteDialogOpen(false);
-      return;
-    }
-    
     setIsLoading(true);
     try {
       await deletePlatform(currentPlatform.id);
       setIsDeleteDialogOpen(false);
-    } catch (error) {
-      // Error is handled in context
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await refreshData();
+    setIsRefreshing(false);
   };
 
   const resetForm = () => {
@@ -179,6 +175,10 @@ const Platforms = () => {
     return subscriptions.filter(sub => sub.platform_id === platformId).length;
   };
 
+  const viewPlatformSubscriptions = (platformId: string) => {
+    navigate(`/subscriptions?platform=${platformId}`);
+  };
+
   const getTypeLabel = (type: string) => {
     return type === "subscription" ? "Subscription" : "Gift Card";
   };
@@ -198,87 +198,93 @@ const Platforms = () => {
             Manage your subscription platforms and gift cards
           </p>
         </div>
-        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Platform
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add New Platform</DialogTitle>
-              <DialogDescription>
-                Enter platform details to add it to your system.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid gap-2">
-                <Label htmlFor="name">Platform Name *</Label>
-                <Input
-                  id="name"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleInputChange}
-                  placeholder="Netflix"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="type">Platform Type *</Label>
-                <Select 
-                  value={formData.type}
-                  onValueChange={handleTypeChange}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select platform type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="subscription">Subscription</SelectItem>
-                      <SelectItem value="gift_card">Gift Card</SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  name="description"
-                  value={formData.description}
-                  onChange={handleInputChange}
-                  placeholder="Stream movies & TV shows"
-                  rows={3}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="logo_url">Logo URL</Label>
-                <Input
-                  id="logo_url"
-                  name="logo_url"
-                  value={formData.logo_url}
-                  onChange={handleInputChange}
-                  placeholder="https://example.com/logo.png"
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                Cancel
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleRefresh} disabled={isRefreshing}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                Add Platform
               </Button>
-              <Button onClick={handleAddPlatform} disabled={isLoading}>
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Adding...
-                  </>
-                ) : (
-                  "Add Platform"
-                )}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add New Platform</DialogTitle>
+                <DialogDescription>
+                  Enter platform details to add it to your system.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="name">Platform Name *</Label>
+                  <Input
+                    id="name"
+                    name="name"
+                    value={formData.name}
+                    onChange={handleInputChange}
+                    placeholder="Netflix"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="type">Platform Type *</Label>
+                  <Select 
+                    value={formData.type}
+                    onValueChange={handleTypeChange}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select platform type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="subscription">Subscription</SelectItem>
+                        <SelectItem value="gift_card">Gift Card</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="description">Description</Label>
+                  <Textarea
+                    id="description"
+                    name="description"
+                    value={formData.description}
+                    onChange={handleInputChange}
+                    placeholder="Stream movies & TV shows"
+                    rows={3}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="logo_url">Logo URL</Label>
+                  <Input
+                    id="logo_url"
+                    name="logo_url"
+                    value={formData.logo_url}
+                    onChange={handleInputChange}
+                    placeholder="https://example.com/logo.png"
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleAddPlatform} disabled={isLoading}>
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Adding...
+                    </>
+                  ) : (
+                    "Add Platform"
+                  )}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-4">
@@ -322,7 +328,14 @@ const Platforms = () => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredPlatforms.length === 0 ? (
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center py-8">
+                  <Loader2 className="h-8 w-8 mx-auto mb-2 text-primary animate-spin" />
+                  <p className="text-muted-foreground">Loading platforms...</p>
+                </TableCell>
+              </TableRow>
+            ) : filteredPlatforms.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} className="text-center py-8">
                   <Layers className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
@@ -387,11 +400,15 @@ const Platforms = () => {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                          <DropdownMenuItem onClick={() => viewPlatformSubscriptions(platform.id)}>
+                            <CreditCard className="h-4 w-4 mr-2" />
+                            View Subscriptions
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
                           <DropdownMenuItem onClick={() => handleOpenEditDialog(platform)}>
                             <Edit className="h-4 w-4 mr-2" />
                             Edit Platform
                           </DropdownMenuItem>
-                          <DropdownMenuSeparator />
                           <DropdownMenuItem 
                             onClick={() => handleOpenDeleteDialog(platform)}
                             className="text-destructive"

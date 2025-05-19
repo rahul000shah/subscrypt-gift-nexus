@@ -1,15 +1,15 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { toast } from "sonner";
-import { v4 as uuidv4 } from "uuid";
+import { supabase } from "@/integrations/supabase/client";
 
 // Define types for our data models
 export interface Customer {
   id: string;
   name: string;
   email: string;
-  phone: string;
-  address: string;
+  phone: string | null;
+  address: string | null;
   created_at: string;
 }
 
@@ -17,8 +17,8 @@ export interface Platform {
   id: string;
   name: string;
   type: "subscription" | "gift_card";
-  description: string;
-  logo_url: string;
+  description: string | null;
+  logo_url: string | null;
   created_at: string;
 }
 
@@ -31,7 +31,18 @@ export interface Subscription {
   expiry_date: string;
   cost: number;
   status: "active" | "expired" | "pending" | "cancelled";
-  notes: string;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface NotificationItem {
+  id: string;
+  type: "expiring_soon" | "expired" | "payment_due";
+  title: string;
+  message: string;
+  date: string;
+  read: boolean;
+  related_id: string | null;
   created_at: string;
 }
 
@@ -39,6 +50,7 @@ interface DataContextType {
   customers: Customer[];
   platforms: Platform[];
   subscriptions: Subscription[];
+  notifications: NotificationItem[];
   addCustomer: (customer: Omit<Customer, "id" | "created_at">) => Promise<Customer>;
   updateCustomer: (id: string, customer: Partial<Customer>) => Promise<Customer>;
   deleteCustomer: (id: string) => Promise<void>;
@@ -53,213 +65,261 @@ interface DataContextType {
   getSubscription: (id: string) => Subscription | undefined;
   getCustomerSubscriptions: (customerId: string) => Subscription[];
   getPlatformSubscriptions: (platformId: string) => Subscription[];
+  markNotificationAsRead: (id: string) => Promise<void>;
+  markAllNotificationsAsRead: () => Promise<void>;
+  getUnreadNotificationsCount: () => number;
   loading: boolean;
+  refreshData: () => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
-// Mock data for initial setup
-const MOCK_CUSTOMERS: Customer[] = [
-  {
-    id: "c1",
-    name: "Rahul Shah",
-    email: "rahul.shah@example.com",
-    phone: "+977-9801234567",
-    address: "Kathmandu, Nepal",
-    created_at: new Date(2023, 1, 15).toISOString(),
-  },
-  {
-    id: "c2",
-    name: "Priya Sharma",
-    email: "priya.sharma@example.com",
-    phone: "+977-9807654321",
-    address: "Pokhara, Nepal",
-    created_at: new Date(2023, 3, 22).toISOString(),
-  },
-  {
-    id: "c3",
-    name: "Anish Thapa",
-    email: "anish.thapa@example.com",
-    phone: "+977-9841234567",
-    address: "Lalitpur, Nepal",
-    created_at: new Date(2023, 5, 7).toISOString(),
-  }
-];
+// Function to generate payment reminders based on subscriptions
+const generateNotifications = async (subscriptions: Subscription[]) => {
+  const today = new Date();
+  const newNotifications: Omit<NotificationItem, "id" | "created_at">[] = [];
+  const existingNotifications: NotificationItem[] = [];
+  
+  // Get existing notifications to avoid duplicates
+  const { data: notifications } = await supabase
+    .from('notifications')
+    .select('*');
 
-const MOCK_PLATFORMS: Platform[] = [
-  {
-    id: "p1",
-    name: "Netflix",
-    type: "subscription",
-    description: "Stream movies & TV shows",
-    logo_url: "https://cdn4.iconfinder.com/data/icons/logos-and-brands/512/227_Netflix_logo-512.png",
-    created_at: new Date(2022, 11, 20).toISOString(),
-  },
-  {
-    id: "p2",
-    name: "Amazon Prime",
-    type: "subscription",
-    description: "Shopping + streaming service",
-    logo_url: "https://cdn4.iconfinder.com/data/icons/logos-and-brands/512/12_Prime_Amazon_logo_logos-512.png",
-    created_at: new Date(2023, 0, 10).toISOString(),
-  },
-  {
-    id: "p3",
-    name: "Steam Gift Card",
-    type: "gift_card",
-    description: "Steam wallet recharge",
-    logo_url: "https://cdn4.iconfinder.com/data/icons/logos-and-brands/512/387_Steam_logo-512.png",
-    created_at: new Date(2023, 2, 5).toISOString(),
-  },
-  {
-    id: "p4",
-    name: "Spotify",
-    type: "subscription",
-    description: "Music streaming service",
-    logo_url: "https://cdn4.iconfinder.com/data/icons/logos-and-brands/512/315_Spotify_logo-512.png",
-    created_at: new Date(2023, 4, 12).toISOString(),
+  if (notifications) {
+    existingNotifications.push(...notifications);
   }
-];
 
-const MOCK_SUBSCRIPTIONS: Subscription[] = [
-  {
-    id: "s1",
-    customer_id: "c1",
-    platform_id: "p1",
-    type: "Monthly",
-    start_date: new Date(2023, 9, 1).toISOString(),
-    expiry_date: new Date(2023, 10, 1).toISOString(),
-    cost: 1499,
-    status: "active",
-    notes: "Premium plan",
-    created_at: new Date(2023, 9, 1).toISOString(),
-  },
-  {
-    id: "s2",
-    customer_id: "c2",
-    platform_id: "p2",
-    type: "Annual",
-    start_date: new Date(2023, 8, 15).toISOString(),
-    expiry_date: new Date(2024, 8, 15).toISOString(),
-    cost: 9999,
-    status: "active",
-    notes: "",
-    created_at: new Date(2023, 8, 15).toISOString(),
-  },
-  {
-    id: "s3",
-    customer_id: "c3",
-    platform_id: "p3",
-    type: "Gift Card",
-    start_date: new Date(2023, 7, 20).toISOString(),
-    expiry_date: new Date(2024, 7, 20).toISOString(),
-    cost: 5000,
-    status: "active",
-    notes: "Birthday gift",
-    created_at: new Date(2023, 7, 20).toISOString(),
-  },
-  {
-    id: "s4",
-    customer_id: "c1",
-    platform_id: "p4",
-    type: "Monthly",
-    start_date: new Date(2023, 6, 10).toISOString(),
-    expiry_date: new Date(2023, 7, 10).toISOString(),
-    cost: 899,
-    status: "expired",
-    notes: "Individual plan",
-    created_at: new Date(2023, 6, 10).toISOString(),
+  for (const subscription of subscriptions) {
+    const expiryDate = new Date(subscription.expiry_date);
+    const daysUntilExpiry = Math.floor((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    
+    // Get customer and platform details
+    const { data: customer } = await supabase
+      .from('customers')
+      .select('*')
+      .eq('id', subscription.customer_id)
+      .single();
+      
+    const { data: platform } = await supabase
+      .from('platforms')
+      .select('*')
+      .eq('id', subscription.platform_id)
+      .single();
+    
+    if (!customer || !platform) continue;
+    
+    // Check for subscriptions expiring in the next 7 days
+    if (subscription.status === 'active' && daysUntilExpiry <= 7 && daysUntilExpiry >= 0) {
+      const notificationId = `expiring-${subscription.id}`;
+      
+      // Check if notification already exists
+      const exists = existingNotifications.some(n => 
+        n.type === 'expiring_soon' && 
+        n.related_id === subscription.id
+      );
+      
+      if (!exists) {
+        newNotifications.push({
+          type: "expiring_soon",
+          title: `Subscription Expiring Soon`,
+          message: `${customer.name}'s ${platform.name} subscription expires on ${new Date(subscription.expiry_date).toLocaleDateString()}`,
+          date: today.toISOString(),
+          read: false,
+          related_id: subscription.id
+        });
+      }
+    }
+    
+    // Check for expired subscriptions
+    if (subscription.status === 'active' && daysUntilExpiry < 0 && daysUntilExpiry > -30) {
+      const notificationId = `expired-${subscription.id}`;
+      
+      // Check if notification already exists
+      const exists = existingNotifications.some(n => 
+        n.type === 'expired' && 
+        n.related_id === subscription.id
+      );
+      
+      if (!exists) {
+        newNotifications.push({
+          type: "expired",
+          title: `Subscription Expired`,
+          message: `${customer.name}'s ${platform.name} subscription has expired on ${new Date(subscription.expiry_date).toLocaleDateString()}`,
+          date: expiryDate.toISOString(),
+          read: false,
+          related_id: subscription.id
+        });
+        
+        // Update subscription status to expired
+        await supabase
+          .from('subscriptions')
+          .update({ status: 'expired' })
+          .eq('id', subscription.id);
+      }
+    }
   }
-];
+  
+  // Insert new notifications
+  if (newNotifications.length > 0) {
+    await supabase.from('notifications').insert(newNotifications);
+  }
+};
 
 export const DataProvider = ({ children }: { children: ReactNode }) => {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [platforms, setPlatforms] = useState<Platform[]>([]);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Function to fetch all data from Supabase
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      // Fetch customers
+      const { data: customersData, error: customersError } = await supabase
+        .from('customers')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (customersError) throw customersError;
+      
+      // Fetch platforms
+      const { data: platformsData, error: platformsError } = await supabase
+        .from('platforms')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (platformsError) throw platformsError;
+      
+      // Fetch subscriptions
+      const { data: subscriptionsData, error: subscriptionsError } = await supabase
+        .from('subscriptions')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (subscriptionsError) throw subscriptionsError;
+      
+      // Fetch notifications
+      const { data: notificationsData, error: notificationsError } = await supabase
+        .from('notifications')
+        .select('*')
+        .order('date', { ascending: false });
+      
+      if (notificationsError) throw notificationsError;
+      
+      // Generate notifications based on subscription status
+      await generateNotifications(subscriptionsData || []);
+      
+      // Fetch notifications again to include newly generated ones
+      const { data: updatedNotifications } = await supabase
+        .from('notifications')
+        .select('*')
+        .order('date', { ascending: false });
+      
+      // Update state with fetched data
+      setCustomers(customersData || []);
+      setPlatforms(platformsData || []);
+      setSubscriptions(subscriptionsData || []);
+      setNotifications(updatedNotifications || []);
+      
+    } catch (error) {
+      console.error("Failed to load data from Supabase", error);
+      toast.error("Failed to load data from database");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Load data on mount
   useEffect(() => {
-    const loadInitialData = async () => {
-      try {
-        // In a real app, you'd fetch this from your API
-        // For now, we're using mock data or local storage if available
-        const storedCustomers = localStorage.getItem("cms_customers");
-        const storedPlatforms = localStorage.getItem("cms_platforms");
-        const storedSubscriptions = localStorage.getItem("cms_subscriptions");
-
-        setCustomers(storedCustomers ? JSON.parse(storedCustomers) : MOCK_CUSTOMERS);
-        setPlatforms(storedPlatforms ? JSON.parse(storedPlatforms) : MOCK_PLATFORMS);
-        setSubscriptions(storedSubscriptions ? JSON.parse(storedSubscriptions) : MOCK_SUBSCRIPTIONS);
-      } catch (error) {
-        console.error("Failed to load data", error);
-        toast.error("Failed to load data");
-        
-        // Fall back to mock data
-        setCustomers(MOCK_CUSTOMERS);
-        setPlatforms(MOCK_PLATFORMS);
-        setSubscriptions(MOCK_SUBSCRIPTIONS);
-      } finally {
-        setLoading(false);
-      }
+    fetchData();
+    
+    // Set up real-time subscriptions for all tables
+    const customersSubscription = supabase
+      .channel('public:customers')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, fetchData)
+      .subscribe();
+      
+    const platformsSubscription = supabase
+      .channel('public:platforms')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'platforms' }, fetchData)
+      .subscribe();
+      
+    const subscriptionsSubscription = supabase
+      .channel('public:subscriptions')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'subscriptions' }, fetchData)
+      .subscribe();
+      
+    const notificationsSubscription = supabase
+      .channel('public:notifications')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, fetchData)
+      .subscribe();
+    
+    // Clean up subscriptions on unmount
+    return () => {
+      supabase.removeChannel(customersSubscription);
+      supabase.removeChannel(platformsSubscription);
+      supabase.removeChannel(subscriptionsSubscription);
+      supabase.removeChannel(notificationsSubscription);
     };
-
-    loadInitialData();
   }, []);
-
-  // Save data whenever it changes
-  useEffect(() => {
-    if (!loading) {
-      localStorage.setItem("cms_customers", JSON.stringify(customers));
-      localStorage.setItem("cms_platforms", JSON.stringify(platforms));
-      localStorage.setItem("cms_subscriptions", JSON.stringify(subscriptions));
-    }
-  }, [customers, platforms, subscriptions, loading]);
 
   // Customer CRUD operations
   const addCustomer = async (customerData: Omit<Customer, "id" | "created_at">) => {
-    const newCustomer: Customer = {
-      ...customerData,
-      id: uuidv4(),
-      created_at: new Date().toISOString()
-    };
-    
-    setCustomers(prev => [...prev, newCustomer]);
-    toast.success(`Added customer: ${newCustomer.name}`);
-    return newCustomer;
+    try {
+      const { data, error } = await supabase
+        .from('customers')
+        .insert(customerData)
+        .select()
+        .single();
+      
+      if (error) throw error;
+      
+      toast.success(`Added customer: ${data.name}`);
+      return data;
+    } catch (error: any) {
+      console.error("Failed to add customer", error);
+      toast.error(error.message || "Failed to add customer");
+      throw error;
+    }
   };
 
   const updateCustomer = async (id: string, customerData: Partial<Customer>) => {
-    const customerIndex = customers.findIndex(c => c.id === id);
-    
-    if (customerIndex === -1) {
-      toast.error(`Customer not found: ${id}`);
-      throw new Error(`Customer not found: ${id}`);
+    try {
+      const { data, error } = await supabase
+        .from('customers')
+        .update(customerData)
+        .eq('id', id)
+        .select()
+        .single();
+      
+      if (error) throw error;
+      
+      toast.success(`Updated customer: ${data.name}`);
+      return data;
+    } catch (error: any) {
+      console.error("Failed to update customer", error);
+      toast.error(error.message || "Failed to update customer");
+      throw error;
     }
-    
-    const updatedCustomer = {
-      ...customers[customerIndex],
-      ...customerData
-    };
-    
-    const updatedCustomers = [...customers];
-    updatedCustomers[customerIndex] = updatedCustomer;
-    
-    setCustomers(updatedCustomers);
-    toast.success(`Updated customer: ${updatedCustomer.name}`);
-    return updatedCustomer;
   };
 
   const deleteCustomer = async (id: string) => {
-    const customerSubs = subscriptions.filter(s => s.customer_id === id);
-    
-    if (customerSubs.length > 0) {
-      toast.error("Cannot delete customer with active subscriptions");
-      throw new Error("Cannot delete customer with active subscriptions");
+    try {
+      const { error } = await supabase
+        .from('customers')
+        .delete()
+        .eq('id', id);
+      
+      if (error) throw error;
+      
+      toast.success("Customer deleted successfully");
+    } catch (error: any) {
+      console.error("Failed to delete customer", error);
+      toast.error(error.message || "Failed to delete customer");
+      throw error;
     }
-    
-    setCustomers(prev => prev.filter(c => c.id !== id));
-    toast.success("Customer deleted successfully");
   };
 
   const getCustomer = (id: string) => {
@@ -268,48 +328,59 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
 
   // Platform CRUD operations
   const addPlatform = async (platformData: Omit<Platform, "id" | "created_at">) => {
-    const newPlatform: Platform = {
-      ...platformData,
-      id: uuidv4(),
-      created_at: new Date().toISOString()
-    };
-    
-    setPlatforms(prev => [...prev, newPlatform]);
-    toast.success(`Added platform: ${newPlatform.name}`);
-    return newPlatform;
+    try {
+      const { data, error } = await supabase
+        .from('platforms')
+        .insert(platformData)
+        .select()
+        .single();
+      
+      if (error) throw error;
+      
+      toast.success(`Added platform: ${data.name}`);
+      return data;
+    } catch (error: any) {
+      console.error("Failed to add platform", error);
+      toast.error(error.message || "Failed to add platform");
+      throw error;
+    }
   };
 
   const updatePlatform = async (id: string, platformData: Partial<Platform>) => {
-    const platformIndex = platforms.findIndex(p => p.id === id);
-    
-    if (platformIndex === -1) {
-      toast.error(`Platform not found: ${id}`);
-      throw new Error(`Platform not found: ${id}`);
+    try {
+      const { data, error } = await supabase
+        .from('platforms')
+        .update(platformData)
+        .eq('id', id)
+        .select()
+        .single();
+      
+      if (error) throw error;
+      
+      toast.success(`Updated platform: ${data.name}`);
+      return data;
+    } catch (error: any) {
+      console.error("Failed to update platform", error);
+      toast.error(error.message || "Failed to update platform");
+      throw error;
     }
-    
-    const updatedPlatform = {
-      ...platforms[platformIndex],
-      ...platformData
-    };
-    
-    const updatedPlatforms = [...platforms];
-    updatedPlatforms[platformIndex] = updatedPlatform;
-    
-    setPlatforms(updatedPlatforms);
-    toast.success(`Updated platform: ${updatedPlatform.name}`);
-    return updatedPlatform;
   };
 
   const deletePlatform = async (id: string) => {
-    const platformSubs = subscriptions.filter(s => s.platform_id === id);
-    
-    if (platformSubs.length > 0) {
-      toast.error("Cannot delete platform with active subscriptions");
-      throw new Error("Cannot delete platform with active subscriptions");
+    try {
+      const { error } = await supabase
+        .from('platforms')
+        .delete()
+        .eq('id', id);
+      
+      if (error) throw error;
+      
+      toast.success("Platform deleted successfully");
+    } catch (error: any) {
+      console.error("Failed to delete platform", error);
+      toast.error(error.message || "Failed to delete platform");
+      throw error;
     }
-    
-    setPlatforms(prev => prev.filter(p => p.id !== id));
-    toast.success("Platform deleted successfully");
   };
 
   const getPlatform = (id: string) => {
@@ -318,41 +389,59 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
 
   // Subscription CRUD operations
   const addSubscription = async (subscriptionData: Omit<Subscription, "id" | "created_at">) => {
-    const newSubscription: Subscription = {
-      ...subscriptionData,
-      id: uuidv4(),
-      created_at: new Date().toISOString()
-    };
-    
-    setSubscriptions(prev => [...prev, newSubscription]);
-    toast.success("Subscription added successfully");
-    return newSubscription;
+    try {
+      const { data, error } = await supabase
+        .from('subscriptions')
+        .insert(subscriptionData)
+        .select()
+        .single();
+      
+      if (error) throw error;
+      
+      toast.success("Subscription added successfully");
+      return data;
+    } catch (error: any) {
+      console.error("Failed to add subscription", error);
+      toast.error(error.message || "Failed to add subscription");
+      throw error;
+    }
   };
 
   const updateSubscription = async (id: string, subscriptionData: Partial<Subscription>) => {
-    const subscriptionIndex = subscriptions.findIndex(s => s.id === id);
-    
-    if (subscriptionIndex === -1) {
-      toast.error(`Subscription not found: ${id}`);
-      throw new Error(`Subscription not found: ${id}`);
+    try {
+      const { data, error } = await supabase
+        .from('subscriptions')
+        .update(subscriptionData)
+        .eq('id', id)
+        .select()
+        .single();
+      
+      if (error) throw error;
+      
+      toast.success("Subscription updated successfully");
+      return data;
+    } catch (error: any) {
+      console.error("Failed to update subscription", error);
+      toast.error(error.message || "Failed to update subscription");
+      throw error;
     }
-    
-    const updatedSubscription = {
-      ...subscriptions[subscriptionIndex],
-      ...subscriptionData
-    };
-    
-    const updatedSubscriptions = [...subscriptions];
-    updatedSubscriptions[subscriptionIndex] = updatedSubscription;
-    
-    setSubscriptions(updatedSubscriptions);
-    toast.success("Subscription updated successfully");
-    return updatedSubscription;
   };
 
   const deleteSubscription = async (id: string) => {
-    setSubscriptions(prev => prev.filter(s => s.id !== id));
-    toast.success("Subscription deleted successfully");
+    try {
+      const { error } = await supabase
+        .from('subscriptions')
+        .delete()
+        .eq('id', id);
+      
+      if (error) throw error;
+      
+      toast.success("Subscription deleted successfully");
+    } catch (error: any) {
+      console.error("Failed to delete subscription", error);
+      toast.error(error.message || "Failed to delete subscription");
+      throw error;
+    }
   };
 
   const getSubscription = (id: string) => {
@@ -366,12 +455,67 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
   const getPlatformSubscriptions = (platformId: string) => {
     return subscriptions.filter(s => s.platform_id === platformId);
   };
+  
+  // Notification operations
+  const markNotificationAsRead = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('id', id);
+      
+      if (error) throw error;
+      
+      setNotifications(prev => 
+        prev.map(notification => 
+          notification.id === id 
+            ? { ...notification, read: true } 
+            : notification
+        )
+      );
+      
+      toast.success("Notification marked as read");
+    } catch (error: any) {
+      console.error("Failed to mark notification as read", error);
+      toast.error(error.message || "Failed to mark notification as read");
+    }
+  };
+
+  const markAllNotificationsAsRead = async () => {
+    try {
+      const { error } = await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('read', false);
+      
+      if (error) throw error;
+      
+      setNotifications(prev => 
+        prev.map(notification => ({ ...notification, read: true }))
+      );
+      
+      toast.success("All notifications marked as read");
+    } catch (error: any) {
+      console.error("Failed to mark all notifications as read", error);
+      toast.error(error.message || "Failed to mark all notifications as read");
+    }
+  };
+
+  const getUnreadNotificationsCount = () => {
+    return notifications.filter(n => !n.read).length;
+  };
+
+  // Function to manually refresh data
+  const refreshData = async () => {
+    await fetchData();
+  };
 
   return (
     <DataContext.Provider value={{
       customers,
       platforms,
       subscriptions,
+      notifications,
       addCustomer,
       updateCustomer,
       deleteCustomer,
@@ -386,7 +530,11 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       getSubscription,
       getCustomerSubscriptions,
       getPlatformSubscriptions,
-      loading
+      markNotificationAsRead,
+      markAllNotificationsAsRead,
+      getUnreadNotificationsCount,
+      loading,
+      refreshData
     }}>
       {children}
     </DataContext.Provider>

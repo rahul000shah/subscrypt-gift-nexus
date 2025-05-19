@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from "react";
-import { useData, Subscription, Customer, Platform } from "@/context/DataContext";
+import { useData, NotificationItem } from "@/context/DataContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -17,108 +17,39 @@ import {
   Clock, 
   Bell, 
   CheckCircle,
-  ArrowRightCircle
+  ArrowRightCircle,
+  RefreshCw
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { format, parseISO, isBefore, addDays, isAfter } from "date-fns";
-import { format as formatDistance } from "date-fns";
-import { toast } from "sonner";
-
-interface NotificationItem {
-  id: string;
-  type: "expiring_soon" | "expired" | "payment_due";
-  title: string;
-  message: string;
-  date: string;
-  read: boolean;
-  relatedId?: string;
-}
+import { useNavigate } from "react-router-dom";
 
 const Notifications = () => {
-  const { subscriptions, customers, platforms } = useData();
+  const { 
+    notifications, 
+    markNotificationAsRead, 
+    markAllNotificationsAsRead, 
+    getUnreadNotificationsCount,
+    refreshData,
+    loading 
+  } = useData();
   const [searchQuery, setSearchQuery] = useState("");
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const navigate = useNavigate();
+  const unreadCount = getUnreadNotificationsCount();
 
-  // Generate notifications based on subscription data
-  useEffect(() => {
-    const today = new Date();
-    const generatedNotifications: NotificationItem[] = [];
-
-    // Check for soon-to-expire subscriptions
-    subscriptions.forEach(subscription => {
-      if (subscription.status !== "active") return;
-      
-      const expiryDate = parseISO(subscription.expiry_date);
-      const customer = customers.find(c => c.id === subscription.customer_id);
-      const platform = platforms.find(p => p.id === subscription.platform_id);
-      
-      if (!customer || !platform) return;
-
-      // Subscriptions expiring in the next 7 days
-      if (isAfter(expiryDate, today) && isBefore(expiryDate, addDays(today, 7))) {
-        generatedNotifications.push({
-          id: `expiring-${subscription.id}`,
-          type: "expiring_soon",
-          title: `Subscription Expiring Soon`,
-          message: `${customer.name}'s ${platform.name} subscription expires on ${format(expiryDate, 'MMM d, yyyy')}`,
-          date: today.toISOString(),
-          read: false,
-          relatedId: subscription.id
-        });
-      }
-      
-      // Subscriptions that expired in the last 30 days
-      if (isBefore(expiryDate, today) && isAfter(expiryDate, addDays(today, -30))) {
-        generatedNotifications.push({
-          id: `expired-${subscription.id}`,
-          type: "expired",
-          title: `Subscription Expired`,
-          message: `${customer.name}'s ${platform.name} subscription has expired on ${format(expiryDate, 'MMM d, yyyy')}`,
-          date: expiryDate.toISOString(),
-          read: false,
-          relatedId: subscription.id
-        });
-      }
-    });
-    
-    // Add some demo/mock notifications
-    generatedNotifications.push({
-      id: "payment-reminder-1",
-      type: "payment_due",
-      title: "Payment Reminder",
-      message: "Please collect payment from Rahul Shah for Netflix subscription renewal",
-      date: addDays(today, -2).toISOString(),
-      read: true,
-    });
-    
-    // Sort notifications by date (most recent first)
-    const sortedNotifications = generatedNotifications.sort((a, b) => 
-      new Date(b.date).getTime() - new Date(a.date).getTime()
-    );
-    
-    setNotifications(sortedNotifications);
-    setUnreadCount(sortedNotifications.filter(n => !n.read).length);
-  }, [subscriptions, customers, platforms]);
-
-  const handleMarkAsRead = (id: string) => {
-    setNotifications(prev => 
-      prev.map(notification => 
-        notification.id === id 
-          ? { ...notification, read: true } 
-          : notification
-      )
-    );
-    setUnreadCount(prev => Math.max(0, prev - 1));
-    toast.success("Notification marked as read");
+  const handleMarkAsRead = async (id: string) => {
+    await markNotificationAsRead(id);
   };
 
-  const handleMarkAllAsRead = () => {
-    setNotifications(prev => 
-      prev.map(notification => ({ ...notification, read: true }))
-    );
-    setUnreadCount(0);
-    toast.success("All notifications marked as read");
+  const handleMarkAllAsRead = async () => {
+    await markAllNotificationsAsRead();
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await refreshData();
+    setIsRefreshing(false);
   };
 
   const filteredNotifications = notifications.filter(notification => {
@@ -158,6 +89,12 @@ const Notifications = () => {
     }
   };
 
+  const handleViewDetails = (notification: NotificationItem) => {
+    if (notification.related_id) {
+      navigate(`/subscriptions?id=${notification.related_id}`);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-4">
@@ -168,6 +105,10 @@ const Notifications = () => {
           </p>
         </div>
         <div className="flex items-center space-x-2">
+          <Button variant="outline" onClick={handleRefresh} disabled={isRefreshing}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
           {unreadCount > 0 && (
             <Button variant="outline" onClick={handleMarkAllAsRead}>
               <CheckCircle className="mr-2 h-4 w-4" />
@@ -198,7 +139,14 @@ const Notifications = () => {
       </div>
 
       <div className="space-y-4">
-        {filteredNotifications.length === 0 ? (
+        {loading ? (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-8">
+              <RefreshCw className="h-10 w-10 text-muted-foreground mb-2 animate-spin" />
+              <p className="text-muted-foreground">Loading notifications...</p>
+            </CardContent>
+          </Card>
+        ) : filteredNotifications.length === 0 ? (
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-8">
               <Bell className="h-10 w-10 text-muted-foreground mb-2" />
@@ -244,11 +192,12 @@ const Notifications = () => {
                     Mark as read
                   </Button>
                 )}
-                {notification.relatedId && (
+                {notification.related_id && (
                   <Button 
                     variant="outline" 
                     size="sm"
                     className="ml-auto"
+                    onClick={() => handleViewDetails(notification)}
                   >
                     View Details
                   </Button>

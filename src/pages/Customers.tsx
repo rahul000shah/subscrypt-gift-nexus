@@ -37,14 +37,14 @@ import {
   Trash2, 
   CreditCard, 
   Loader2,
-  User
+  User,
+  RefreshCw
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { useNavigate } from "react-router-dom";
-import { toast } from "sonner";
 
 const Customers = () => {
-  const { customers, subscriptions, addCustomer, updateCustomer, deleteCustomer } = useData();
+  const { customers, subscriptions, addCustomer, updateCustomer, deleteCustomer, loading, refreshData } = useData();
   const navigate = useNavigate();
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -52,6 +52,7 @@ const Customers = () => {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   
   const [currentCustomer, setCurrentCustomer] = useState<Customer | null>(null);
   const [formData, setFormData] = useState({
@@ -66,7 +67,8 @@ const Customers = () => {
     return (
       customer.name.toLowerCase().includes(query) ||
       customer.email.toLowerCase().includes(query) ||
-      customer.phone.toLowerCase().includes(query)
+      (customer.phone && customer.phone.toLowerCase().includes(query)) ||
+      (customer.address && customer.address.toLowerCase().includes(query))
     );
   });
 
@@ -75,8 +77,8 @@ const Customers = () => {
     setFormData({
       name: customer.name,
       email: customer.email,
-      phone: customer.phone,
-      address: customer.address
+      phone: customer.phone || "",
+      address: customer.address || ""
     });
     setIsEditDialogOpen(true);
   };
@@ -88,7 +90,6 @@ const Customers = () => {
 
   const handleAddCustomer = async () => {
     if (!formData.name || !formData.email) {
-      toast.error("Name and email are required");
       return;
     }
     
@@ -106,7 +107,6 @@ const Customers = () => {
     if (!currentCustomer) return;
     
     if (!formData.name || !formData.email) {
-      toast.error("Name and email are required");
       return;
     }
     
@@ -122,23 +122,19 @@ const Customers = () => {
   const handleDeleteCustomer = async () => {
     if (!currentCustomer) return;
     
-    // Check if customer has subscriptions
-    const customerSubs = subscriptions.filter(sub => sub.customer_id === currentCustomer.id);
-    if (customerSubs.length > 0) {
-      toast.error("Cannot delete customer with active subscriptions");
-      setIsDeleteDialogOpen(false);
-      return;
-    }
-    
     setIsLoading(true);
     try {
       await deleteCustomer(currentCustomer.id);
       setIsDeleteDialogOpen(false);
-    } catch (error) {
-      // Error is handled in context
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await refreshData();
+    setIsRefreshing(false);
   };
 
   const resetForm = () => {
@@ -166,7 +162,7 @@ const Customers = () => {
   };
 
   const viewCustomerSubscriptions = (customerId: string) => {
-    navigate(`/customers/${customerId}`);
+    navigate(`/subscriptions?customer=${customerId}`);
   };
 
   return (
@@ -178,80 +174,86 @@ const Customers = () => {
             Manage your customer database
           </p>
         </div>
-        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Customer
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add New Customer</DialogTitle>
-              <DialogDescription>
-                Enter customer details below to add them to your system.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid gap-2">
-                <Label htmlFor="name">Name *</Label>
-                <Input
-                  id="name"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleInputChange}
-                  placeholder="John Doe"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="email">Email *</Label>
-                <Input
-                  id="email"
-                  name="email"
-                  type="email"
-                  value={formData.email}
-                  onChange={handleInputChange}
-                  placeholder="john@example.com"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="phone">Phone</Label>
-                <Input
-                  id="phone"
-                  name="phone"
-                  value={formData.phone}
-                  onChange={handleInputChange}
-                  placeholder="+1234567890"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="address">Address</Label>
-                <Input
-                  id="address"
-                  name="address"
-                  value={formData.address}
-                  onChange={handleInputChange}
-                  placeholder="123 Street, City, Country"
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                Cancel
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleRefresh} disabled={isRefreshing}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                Add Customer
               </Button>
-              <Button onClick={handleAddCustomer} disabled={isLoading}>
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Adding...
-                  </>
-                ) : (
-                  "Add Customer"
-                )}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add New Customer</DialogTitle>
+                <DialogDescription>
+                  Enter customer details below to add them to your system.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="name">Name *</Label>
+                  <Input
+                    id="name"
+                    name="name"
+                    value={formData.name}
+                    onChange={handleInputChange}
+                    placeholder="John Doe"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="email">Email *</Label>
+                  <Input
+                    id="email"
+                    name="email"
+                    type="email"
+                    value={formData.email}
+                    onChange={handleInputChange}
+                    placeholder="john@example.com"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="phone">Phone</Label>
+                  <Input
+                    id="phone"
+                    name="phone"
+                    value={formData.phone}
+                    onChange={handleInputChange}
+                    placeholder="+1234567890"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="address">Address</Label>
+                  <Input
+                    id="address"
+                    name="address"
+                    value={formData.address}
+                    onChange={handleInputChange}
+                    placeholder="123 Street, City, Country"
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleAddCustomer} disabled={isLoading}>
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Adding...
+                    </>
+                  ) : (
+                    "Add Customer"
+                  )}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-4 items-center">
@@ -282,7 +284,14 @@ const Customers = () => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredCustomers.length === 0 ? (
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center py-8">
+                  <Loader2 className="h-8 w-8 mx-auto mb-2 text-primary animate-spin" />
+                  <p className="text-muted-foreground">Loading customers...</p>
+                </TableCell>
+              </TableRow>
+            ) : filteredCustomers.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} className="text-center py-8">
                   <User className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
