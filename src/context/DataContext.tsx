@@ -1,4 +1,3 @@
-
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -223,14 +222,20 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       
       // Update state with fetched data, making sure to cast types properly
       setCustomers(customersData || []);
+      
+      // Ensure proper type casting for platforms
       setPlatforms((platformsData || []).map(p => ({
         ...p,
         type: p.type as Platform["type"]
       })));
+      
+      // Ensure proper type casting for subscriptions
       setSubscriptions((subscriptionsData || []).map(s => ({
         ...s,
         status: s.status as Subscription["status"] 
       })));
+      
+      // Ensure proper type casting for notifications
       setNotifications((updatedNotifications || []).map(n => ({
         ...n, 
         type: n.type as NotificationItem["type"]

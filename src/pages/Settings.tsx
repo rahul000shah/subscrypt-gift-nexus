@@ -1,5 +1,5 @@
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -28,15 +28,40 @@ import {
   Mail,
   Globe,
   Save,
-  Loader2
+  Loader2,
+  Download
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { Textarea } from "@/components/ui/textarea";
+import { supabase } from "@/integrations/supabase/client";
+import { useData } from "@/context/DataContext";
+import { downloadCustomersReport, downloadSubscriptionsReport, downloadPlatformsReport } from "@/utils/reportUtils";
+
+interface UserSettings {
+  name?: string;
+  email?: string;
+  phone?: string;
+  company?: string;
+  role?: string;
+  language?: string;
+  timezone?: string;
+  currency?: string;
+  company_details?: string;
+  notification_preferences?: {
+    emailAlerts: boolean;
+    expiryReminders: boolean;
+    paymentReminders: boolean;
+    marketingEmails: boolean;
+  };
+}
 
 const Settings = () => {
   const { user } = useAuth();
+  const { customers, platforms, subscriptions } = useData();
   const [isLoading, setIsLoading] = useState(false);
+  const [isReportLoading, setIsReportLoading] = useState(false);
+  const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
   
   const [profileForm, setProfileForm] = useState({
     name: user?.name || "",
@@ -53,6 +78,61 @@ const Settings = () => {
     marketingEmails: false,
   });
 
+  const [appSettings, setAppSettings] = useState({
+    language: "en",
+    timezone: "Asia/Kathmandu",
+    currency: "NPR",
+    companyDetails: ""
+  });
+
+  // Load user settings from Supabase on component mount
+  useEffect(() => {
+    const loadUserSettings = async () => {
+      if (!user?.id) return;
+      
+      try {
+        const { data, error } = await supabase
+          .from('user_settings')
+          .select('*')
+          .eq('user_id', user.id)
+          .single();
+          
+        if (error && error.code !== 'PGSQL_NO_ROWS_RETURNED') {
+          throw error;
+        }
+        
+        if (data) {
+          setUserSettings(data);
+          
+          // Update form states with loaded data
+          setProfileForm({
+            name: data.name || user.name || "",
+            email: data.email || user.email || "",
+            phone: data.phone || "+977-9801234567",
+            company: data.company || "SubsCMS Inc.",
+            role: data.role || "admin",
+          });
+          
+          if (data.notification_preferences) {
+            setNotificationSettings(data.notification_preferences);
+          }
+          
+          setAppSettings({
+            language: data.language || "en",
+            timezone: data.timezone || "Asia/Kathmandu",
+            currency: data.currency || "NPR",
+            companyDetails: data.company_details || ""
+          });
+        }
+      } catch (error) {
+        console.error("Error loading user settings:", error);
+        toast.error("Failed to load settings");
+      }
+    };
+    
+    loadUserSettings();
+  }, [user]);
+
   const handleProfileFormChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setProfileForm(prev => ({ ...prev, [name]: value }));
@@ -62,20 +142,134 @@ const Settings = () => {
     setNotificationSettings(prev => ({ ...prev, [setting]: value }));
   };
 
+  const handleAppSettingChange = (name: string, value: string) => {
+    setAppSettings(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleTextAreaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setAppSettings(prev => ({ ...prev, companyDetails: e.target.value }));
+  };
+
+  const saveSettingsToSupabase = async (settings: UserSettings) => {
+    if (!user?.id) {
+      toast.error("User not authenticated");
+      return false;
+    }
+    
+    try {
+      const { data, error } = await supabase
+        .from('user_settings')
+        .upsert({ 
+          user_id: user.id, 
+          ...settings,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'user_id' })
+        .select();
+        
+      if (error) throw error;
+      
+      return true;
+    } catch (error) {
+      console.error("Error saving settings:", error);
+      return false;
+    }
+  };
+
   const handleSaveProfile = async () => {
     setIsLoading(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    toast.success("Profile settings saved");
+    
+    const success = await saveSettingsToSupabase({
+      ...userSettings,
+      name: profileForm.name,
+      email: profileForm.email,
+      phone: profileForm.phone,
+      company: profileForm.company,
+      role: profileForm.role
+    });
+    
+    if (success) {
+      toast.success("Profile settings saved");
+    } else {
+      toast.error("Failed to save profile settings");
+    }
+    
     setIsLoading(false);
   };
 
   const handleSaveNotifications = async () => {
     setIsLoading(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    toast.success("Notification settings saved");
+    
+    const success = await saveSettingsToSupabase({
+      ...userSettings,
+      notification_preferences: notificationSettings
+    });
+    
+    if (success) {
+      toast.success("Notification settings saved");
+    } else {
+      toast.error("Failed to save notification settings");
+    }
+    
     setIsLoading(false);
+  };
+
+  const handleSaveAppSettings = async () => {
+    setIsLoading(true);
+    
+    const success = await saveSettingsToSupabase({
+      ...userSettings,
+      language: appSettings.language,
+      timezone: appSettings.timezone,
+      currency: appSettings.currency,
+      company_details: appSettings.companyDetails
+    });
+    
+    if (success) {
+      toast.success("App settings saved");
+    } else {
+      toast.error("Failed to save app settings");
+    }
+    
+    setIsLoading(false);
+  };
+
+  const handleDownloadSubscriptionsReport = () => {
+    setIsReportLoading(true);
+    try {
+      downloadSubscriptionsReport(subscriptions, customers, platforms);
+      toast.success("Subscriptions report downloaded");
+    } catch (error) {
+      toast.error("Failed to download report");
+      console.error(error);
+    } finally {
+      setIsReportLoading(false);
+    }
+  };
+
+  const handleDownloadCustomersReport = () => {
+    setIsReportLoading(true);
+    try {
+      downloadCustomersReport(customers, subscriptions);
+      toast.success("Customers report downloaded");
+    } catch (error) {
+      toast.error("Failed to download report");
+      console.error(error);
+    } finally {
+      setIsReportLoading(false);
+    }
+  };
+
+  const handleDownloadPlatformsReport = () => {
+    setIsReportLoading(true);
+    try {
+      downloadPlatformsReport(platforms, subscriptions);
+      toast.success("Platforms report downloaded");
+    } catch (error) {
+      toast.error("Failed to download report");
+      console.error(error);
+    } finally {
+      setIsReportLoading(false);
+    }
   };
 
   return (
@@ -104,6 +298,10 @@ const Settings = () => {
           <TabsTrigger value="app">
             <SettingsIcon className="h-4 w-4 mr-2" />
             App Settings
+          </TabsTrigger>
+          <TabsTrigger value="reports">
+            <Download className="h-4 w-4 mr-2" />
+            Reports
           </TabsTrigger>
         </TabsList>
 
@@ -331,7 +529,10 @@ const Settings = () => {
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="language">Language</Label>
-                <Select defaultValue="en">
+                <Select 
+                  value={appSettings.language}
+                  onValueChange={(value) => handleAppSettingChange("language", value)}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select language" />
                   </SelectTrigger>
@@ -344,7 +545,10 @@ const Settings = () => {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="timezone">Timezone</Label>
-                <Select defaultValue="Asia/Kathmandu">
+                <Select 
+                  value={appSettings.timezone}
+                  onValueChange={(value) => handleAppSettingChange("timezone", value)}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select timezone" />
                   </SelectTrigger>
@@ -357,7 +561,10 @@ const Settings = () => {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="currency">Currency</Label>
-                <Select defaultValue="NPR">
+                <Select 
+                  value={appSettings.currency}
+                  onValueChange={(value) => handleAppSettingChange("currency", value)}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select currency" />
                   </SelectTrigger>
@@ -374,15 +581,100 @@ const Settings = () => {
                   id="company-details"
                   placeholder="Enter your company details"
                   rows={3}
+                  value={appSettings.companyDetails}
+                  onChange={handleTextAreaChange}
                 />
               </div>
             </CardContent>
             <CardFooter>
-              <Button>
-                <Globe className="mr-2 h-4 w-4" />
-                Save Settings
+              <Button onClick={handleSaveAppSettings} disabled={isLoading}>
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Globe className="mr-2 h-4 w-4" />
+                    Save Settings
+                  </>
+                )}
               </Button>
             </CardFooter>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="reports">
+          <Card>
+            <CardHeader>
+              <CardTitle>Download Reports</CardTitle>
+              <CardDescription>
+                Export your data to CSV for analysis
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-4">
+                <div className="flex flex-col gap-2">
+                  <h3 className="font-medium">Subscriptions Report</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Export all subscription data including customer and platform information
+                  </p>
+                  <Button 
+                    variant="outline"
+                    onClick={handleDownloadSubscriptionsReport}
+                    disabled={isReportLoading}
+                    className="w-full sm:w-auto"
+                  >
+                    {isReportLoading ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="mr-2 h-4 w-4" />
+                    )}
+                    Download Subscriptions Report
+                  </Button>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <h3 className="font-medium">Customers Report</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Export customer data with subscription counts
+                  </p>
+                  <Button 
+                    variant="outline"
+                    onClick={handleDownloadCustomersReport}
+                    disabled={isReportLoading}
+                    className="w-full sm:w-auto"
+                  >
+                    {isReportLoading ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="mr-2 h-4 w-4" />
+                    )}
+                    Download Customers Report
+                  </Button>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <h3 className="font-medium">Platforms Report</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Export platform data with subscription counts
+                  </p>
+                  <Button 
+                    variant="outline"
+                    onClick={handleDownloadPlatformsReport}
+                    disabled={isReportLoading}
+                    className="w-full sm:w-auto"
+                  >
+                    {isReportLoading ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="mr-2 h-4 w-4" />
+                    )}
+                    Download Platforms Report
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
