@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { useData, Subscription } from "@/context/DataContext";
 import { Button } from "@/components/ui/button";
@@ -163,6 +162,7 @@ const Subscriptions = () => {
     setIsEditDialogOpen(true);
   };
 
+  // Fix the handleOpenDeleteDialog function
   const handleOpenDeleteDialog = (subscription: Subscription) => {
     setCurrentSubscription(subscription);
     setIsDeleteDialogOpen(true);
@@ -532,7 +532,7 @@ const Subscriptions = () => {
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem 
-                            onClick={() => handleDeleteSubscription(subscription)}
+                            onClick={() => handleOpenDeleteDialog(subscription)}
                             className="text-destructive"
                           >
                             <Trash2 className="h-4 w-4 mr-2" />
