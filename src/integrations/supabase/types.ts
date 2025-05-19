@@ -158,12 +158,66 @@ export type Database = {
           },
         ]
       }
+      user_settings: {
+        Row: {
+          company: string | null
+          company_details: string | null
+          created_at: string
+          currency: string | null
+          email: string | null
+          id: string
+          language: string | null
+          name: string | null
+          notification_preferences: Json | null
+          phone: string | null
+          role: string | null
+          timezone: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          company?: string | null
+          company_details?: string | null
+          created_at?: string
+          currency?: string | null
+          email?: string | null
+          id?: string
+          language?: string | null
+          name?: string | null
+          notification_preferences?: Json | null
+          phone?: string | null
+          role?: string | null
+          timezone?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          company?: string | null
+          company_details?: string | null
+          created_at?: string
+          currency?: string | null
+          email?: string | null
+          id?: string
+          language?: string | null
+          name?: string | null
+          notification_preferences?: Json | null
+          phone?: string | null
+          role?: string | null
+          timezone?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      create_user_settings_table: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never

@@ -224,22 +224,31 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       setCustomers(customersData || []);
       
       // Ensure proper type casting for platforms
-      setPlatforms((platformsData || []).map(p => ({
-        ...p,
-        type: p.type as Platform["type"]
-      })));
+      if (platformsData) {
+        const typedPlatforms: Platform[] = platformsData.map(p => ({
+          ...p,
+          type: p.type as Platform["type"]
+        }));
+        setPlatforms(typedPlatforms);
+      }
       
       // Ensure proper type casting for subscriptions
-      setSubscriptions((subscriptionsData || []).map(s => ({
-        ...s,
-        status: s.status as Subscription["status"] 
-      })));
+      if (subscriptionsData) {
+        const typedSubscriptions: Subscription[] = subscriptionsData.map(s => ({
+          ...s,
+          status: s.status as Subscription["status"]
+        }));
+        setSubscriptions(typedSubscriptions);
+      }
       
       // Ensure proper type casting for notifications
-      setNotifications((updatedNotifications || []).map(n => ({
-        ...n, 
-        type: n.type as NotificationItem["type"]
-      })));
+      if (updatedNotifications) {
+        const typedNotifications: NotificationItem[] = updatedNotifications.map(n => ({
+          ...n,
+          type: n.type as NotificationItem["type"]
+        }));
+        setNotifications(typedNotifications);
+      }
       
     } catch (error) {
       console.error("Failed to load data from Supabase", error);

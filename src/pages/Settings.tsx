@@ -39,6 +39,8 @@ import { useData } from "@/context/DataContext";
 import { downloadCustomersReport, downloadSubscriptionsReport, downloadPlatformsReport } from "@/utils/reportUtils";
 
 interface UserSettings {
+  id?: string;
+  user_id?: string;
   name?: string;
   email?: string;
   phone?: string;
@@ -54,6 +56,15 @@ interface UserSettings {
     paymentReminders: boolean;
     marketingEmails: boolean;
   };
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface NotificationPreferences {
+  emailAlerts: boolean;
+  expiryReminders: boolean;
+  paymentReminders: boolean;
+  marketingEmails: boolean;
 }
 
 const Settings = () => {
@@ -68,10 +79,10 @@ const Settings = () => {
     email: user?.email || "",
     phone: "+977-9801234567",
     company: "SubsCMS Inc.",
-    role: user?.role || "admin",
+    role: "admin",
   });
   
-  const [notificationSettings, setNotificationSettings] = useState({
+  const [notificationSettings, setNotificationSettings] = useState<NotificationPreferences>({
     emailAlerts: true,
     expiryReminders: true,
     paymentReminders: true,
@@ -91,6 +102,7 @@ const Settings = () => {
       if (!user?.id) return;
       
       try {
+        // The user_settings table is now in our database schema
         const { data, error } = await supabase
           .from('user_settings')
           .select('*')
@@ -102,7 +114,8 @@ const Settings = () => {
         }
         
         if (data) {
-          setUserSettings(data);
+          // Properly typed as UserSettings
+          setUserSettings(data as UserSettings);
           
           // Update form states with loaded data
           setProfileForm({
@@ -114,7 +127,7 @@ const Settings = () => {
           });
           
           if (data.notification_preferences) {
-            setNotificationSettings(data.notification_preferences);
+            setNotificationSettings(data.notification_preferences as NotificationPreferences);
           }
           
           setAppSettings({
@@ -157,13 +170,16 @@ const Settings = () => {
     }
     
     try {
-      const { data, error } = await supabase
+      // Ensure user_id is set
+      const dataToSave = {
+        ...settings,
+        user_id: user.id,
+        updated_at: new Date().toISOString()
+      };
+      
+      const { error } = await supabase
         .from('user_settings')
-        .upsert({ 
-          user_id: user.id, 
-          ...settings,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'user_id' })
+        .upsert(dataToSave)
         .select();
         
       if (error) throw error;
