@@ -113,8 +113,6 @@ const generateNotifications = async (subscriptions: Subscription[]) => {
     
     // Check for subscriptions expiring in the next 7 days
     if (subscription.status === 'active' && daysUntilExpiry <= 7 && daysUntilExpiry >= 0) {
-      const notificationId = `expiring-${subscription.id}`;
-      
       // Check if notification already exists
       const exists = existingNotifications.some(n => 
         n.type === 'expiring_soon' && 
@@ -135,8 +133,6 @@ const generateNotifications = async (subscriptions: Subscription[]) => {
     
     // Check for expired subscriptions
     if (subscription.status === 'active' && daysUntilExpiry < 0 && daysUntilExpiry > -30) {
-      const notificationId = `expired-${subscription.id}`;
-      
       // Check if notification already exists
       const exists = existingNotifications.some(n => 
         n.type === 'expired' && 
@@ -212,10 +208,12 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       if (notificationsError) throw notificationsError;
       
       // Generate notifications based on subscription status
-      await generateNotifications(subscriptionsData?.map(s => ({
-        ...s,
-        status: s.status as Subscription["status"]
-      })) || []);
+      if (subscriptionsData) {
+        await generateNotifications(subscriptionsData.map(s => ({
+          ...s,
+          status: s.status as Subscription["status"]
+        })));
+      }
       
       // Fetch notifications again to include newly generated ones
       const { data: updatedNotifications } = await supabase
