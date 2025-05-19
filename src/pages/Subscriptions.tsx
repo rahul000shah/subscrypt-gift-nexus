@@ -18,7 +18,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   DropdownMenu,
@@ -34,6 +33,7 @@ import {
   SelectContent,
   SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -44,7 +44,7 @@ import {
   MoreVertical, 
   Edit, 
   Trash2, 
-  Calendar,
+  Calendar as CalendarIcon,
   Loader2,
   AlertCircle,
   CheckCircle,
@@ -52,7 +52,6 @@ import {
   CreditCard,
   Filter,
   Clock,
-  Calendar as CalendarIcon
 } from "lucide-react";
 import { format, parseISO, addMonths, addYears } from "date-fns";
 import { toast } from "sonner";
@@ -330,6 +329,7 @@ const Subscriptions = () => {
 
   return (
     <div className="space-y-6">
+      {/* Header section */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Subscriptions</h1>
