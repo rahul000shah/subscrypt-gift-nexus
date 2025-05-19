@@ -86,7 +86,10 @@ const generateNotifications = async (subscriptions: Subscription[]) => {
     .select('*');
 
   if (notifications) {
-    existingNotifications.push(...notifications);
+    existingNotifications.push(...notifications.map(n => ({
+      ...n,
+      type: n.type as NotificationItem["type"]
+    })));
   }
 
   for (const subscription of subscriptions) {
@@ -209,7 +212,10 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       if (notificationsError) throw notificationsError;
       
       // Generate notifications based on subscription status
-      await generateNotifications(subscriptionsData || []);
+      await generateNotifications(subscriptionsData?.map(s => ({
+        ...s,
+        status: s.status as Subscription["status"]
+      })) || []);
       
       // Fetch notifications again to include newly generated ones
       const { data: updatedNotifications } = await supabase
@@ -217,11 +223,20 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         .select('*')
         .order('date', { ascending: false });
       
-      // Update state with fetched data
+      // Update state with fetched data, making sure to cast types properly
       setCustomers(customersData || []);
-      setPlatforms(platformsData || []);
-      setSubscriptions(subscriptionsData || []);
-      setNotifications(updatedNotifications || []);
+      setPlatforms((platformsData || []).map(p => ({
+        ...p,
+        type: p.type as Platform["type"]
+      })));
+      setSubscriptions((subscriptionsData || []).map(s => ({
+        ...s,
+        status: s.status as Subscription["status"] 
+      })));
+      setNotifications((updatedNotifications || []).map(n => ({
+        ...n, 
+        type: n.type as NotificationItem["type"]
+      })));
       
     } catch (error) {
       console.error("Failed to load data from Supabase", error);
@@ -337,8 +352,14 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       
       if (error) throw error;
       
-      toast.success(`Added platform: ${data.name}`);
-      return data;
+      // Cast the type to match our Platform interface
+      const typedData: Platform = {
+        ...data,
+        type: data.type as Platform["type"]
+      };
+      
+      toast.success(`Added platform: ${typedData.name}`);
+      return typedData;
     } catch (error: any) {
       console.error("Failed to add platform", error);
       toast.error(error.message || "Failed to add platform");
@@ -357,8 +378,14 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       
       if (error) throw error;
       
-      toast.success(`Updated platform: ${data.name}`);
-      return data;
+      // Cast the type to match our Platform interface
+      const typedData: Platform = {
+        ...data,
+        type: data.type as Platform["type"]
+      };
+      
+      toast.success(`Updated platform: ${typedData.name}`);
+      return typedData;
     } catch (error: any) {
       console.error("Failed to update platform", error);
       toast.error(error.message || "Failed to update platform");
@@ -398,8 +425,14 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       
       if (error) throw error;
       
+      // Cast the type to match our Subscription interface
+      const typedData: Subscription = {
+        ...data,
+        status: data.status as Subscription["status"]
+      };
+      
       toast.success("Subscription added successfully");
-      return data;
+      return typedData;
     } catch (error: any) {
       console.error("Failed to add subscription", error);
       toast.error(error.message || "Failed to add subscription");
@@ -418,8 +451,14 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       
       if (error) throw error;
       
+      // Cast the type to match our Subscription interface
+      const typedData: Subscription = {
+        ...data,
+        status: data.status as Subscription["status"]
+      };
+      
       toast.success("Subscription updated successfully");
-      return data;
+      return typedData;
     } catch (error: any) {
       console.error("Failed to update subscription", error);
       toast.error(error.message || "Failed to update subscription");

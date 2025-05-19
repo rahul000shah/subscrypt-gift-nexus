@@ -29,6 +29,15 @@ interface Platform {
   name: string;
 }
 
+interface NotificationItem {
+  type: "expiring_soon" | "expired" | "payment_due";
+  title: string;
+  message: string;
+  date: string;
+  read: boolean;
+  related_id: string | null;
+}
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
@@ -45,7 +54,7 @@ serve(async (req) => {
     );
 
     // Get all active subscriptions
-    const { data: subscriptions, error: subscriptionsError } = await supabaseClient
+    const { data: subscriptionsRaw, error: subscriptionsError } = await supabaseClient
       .from("subscriptions")
       .select("*")
       .eq("status", "active");
@@ -53,19 +62,31 @@ serve(async (req) => {
     if (subscriptionsError) {
       throw subscriptionsError;
     }
+    
+    // Cast subscriptions to the correct type
+    const subscriptions: Subscription[] = subscriptionsRaw?.map(s => ({
+      ...s,
+      status: s.status as Subscription["status"]
+    })) || [];
 
     // Get existing notifications
-    const { data: existingNotifications, error: notificationsError } = await supabaseClient
+    const { data: existingNotificationsRaw, error: notificationsError } = await supabaseClient
       .from("notifications")
       .select("*");
 
     if (notificationsError) {
       throw notificationsError;
     }
+    
+    // Cast notifications to the correct type
+    const existingNotifications = existingNotificationsRaw?.map(n => ({
+      ...n,
+      type: n.type as NotificationItem["type"]
+    })) || [];
 
     const today = new Date();
-    const newNotifications = [];
-    const subscriptionsToUpdate = [];
+    const newNotifications: NotificationItem[] = [];
+    const subscriptionsToUpdate: { id: string, status: "expired" }[] = [];
 
     for (const subscription of subscriptions) {
       const expiryDate = new Date(subscription.expiry_date);
